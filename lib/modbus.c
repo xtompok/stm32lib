@@ -156,6 +156,7 @@ static void tx_init(void)
 	state = STATE_TX;
 	tx_pos = 0;
 	gpio_set(MODBUS_TXEN_GPIO_PORT, MODBUS_TXEN_GPIO_PIN);
+	gpio_set(MODBUS_RXEN_GPIO_PORT, MODBUS_RXEN_GPIO_PIN);
 	usart_set_mode(MODBUS_USART, USART_MODE_TX);
 	usart_enable_tx_interrupt(MODBUS_USART);
 }
@@ -165,6 +166,7 @@ static void tx_done(void)
 	state = STATE_TX_DONE;
 	// usart_disable_tx_interrupt(MODBUS_USART);		// Already done by irq handler
 	gpio_clear(MODBUS_TXEN_GPIO_PORT, MODBUS_TXEN_GPIO_PIN);
+	gpio_clear(MODBUS_RXEN_GPIO_PORT, MODBUS_RXEN_GPIO_PIN);
 }
 
 void modbus_init(void)
@@ -180,6 +182,7 @@ void modbus_init(void)
 	nvic_enable_irq(MODBUS_NVIC_TIMER_IRQ);
 
 	gpio_clear(MODBUS_TXEN_GPIO_PORT, MODBUS_TXEN_GPIO_PIN);
+	gpio_clear(MODBUS_RXEN_GPIO_PORT, MODBUS_RXEN_GPIO_PIN);
 
 	usart_set_baudrate(MODBUS_USART, MODBUS_BAUD_RATE);
 	usart_set_databits(MODBUS_USART, 9);
@@ -195,12 +198,12 @@ void modbus_init(void)
 
 void MODBUS_USART_ISR(void)
 {
-	u32 status = USART_SR(MODBUS_USART);
+	u32 status = USART_ISR(MODBUS_USART);
 
-	if (status & USART_SR_RXNE) {
+	if (status & USART_ISR_RXNE) {
 		uint ch = usart_recv(MODBUS_USART);
 		if (state == STATE_RX) {
-			if (status & (USART_SR_FE | USART_SR_ORE | USART_SR_NE)) {
+			if (status & (USART_ISR_FE | USART_ISR_ORE | USART_ISR_NF)) {
 				DEBUG_ISR('!');
 				rx_bad = 1;
 			} else if (rx_size < MODBUS_RX_BUFSIZE) {
@@ -220,7 +223,7 @@ void MODBUS_USART_ISR(void)
 	}
 
 	if (state == STATE_TX) {
-		if (status & USART_SR_TXE) {
+		if (status & USART_ISR_TXE) {
 			if (tx_pos < tx_size) {
 				usart_send(MODBUS_USART, tx_buf[tx_pos++]);
 				DEBUG_ISR(':');
@@ -234,7 +237,7 @@ void MODBUS_USART_ISR(void)
 			}
 		}
 	} else if (state == STATE_TX_LAST) {
-		if (status & USART_SR_TC) {
+		if (status & USART_ISR_TC) {
 			// Transfer of the last byte is complete. Release the bus.
 			USART_CR1(MODBUS_USART) &= ~USART_CR1_TCIE;
 			tx_done();
